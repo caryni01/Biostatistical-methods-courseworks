@@ -1,0 +1,123 @@
+---
+title: "hw7-Linear Mixed Effects model case study"
+author: "Cary Ni"
+output: 
+  pdf_document :
+    latex_engine: xelatex
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(nlme)
+library(lattice)
+library(mgcv)
+library(lme4)
+knitr::opts_chunk$set(
+  echo = TRUE,
+  fig.align = 'center',
+  strip.white = TRUE)
+theme_set(theme_minimal() + theme(legend.position = "bottom"))
+```
+
+```{r load dataset}
+# load dataset and modify variable types
+data_df = read_csv("./data/HW7-politeness_data.csv", show_col_types = FALSE)
+data_df[, c(1:4)]= lapply(data_df[, c(1:4)], as.factor)
+```
+
+## (a) 
+
+```{r}
+# simple visualization of the categorical data
+par(mfrow=c(1,2))
+myColors = c(rgb(0.1,0.1,0.7,0.5) , rgb(0.8,0.1,0.3,0.6))
+
+boxplot(frequency ~ gender, data = data_df, xlab = "gender", col = myColors)
+boxplot(frequency ~ attitude, data = data_df, xlab = "attitude", col = myColors)
+```
+
+The boxplots show that female is associated with remarkably higher frequency than male while the informal register has a frequency that is only slightly higher than formal register. 
+
+## (b)
+
+```{r}
+model_1 = lme(frequency ~ gender + attitude, random = ~1 | subject, data = data_df)
+summary(model_1)
+```
+
+### Covariance Matrix for Yi
+
+```{r}
+extract.lme.cov2(model_1, data_df)$V[[1]]
+```
+
+### Covariance matrix of fixed effects
+
+```{r}
+vcov(model_1)
+```
+
+### BLUP for intercepts
+
+```{r}
+random.effects(model_1)
+```
+
+### Residuals
+
+```{r}
+data_df$frequency-fitted(model_1)
+model_1$residuals
+```
+
+## (c)
+
+```{r}
+# Rebuild the model_1 with ML
+model_2 = lme(frequency ~ gender + attitude, random = ~1 | subject, data = data_df, method = "ML")
+model_3 = lme(frequency ~ gender*attitude, random = ~1 | subject, data = data_df, method = "ML")
+# Likelihood ratio test
+anova(model_2, model_3)
+```
+
+The likelihood ratio test gives a p value of 0.239, which fails to reject the null hypothesis. Therefore, we will take the small model and believe that the interaction term between gender and attitude is not significantly associated with pitch. 
+
+## (d)
+
+### Mixed effects Model 
+
+$$
+Y_{ij} \ = \beta_0 + X^{T}\beta_1 + b_{i}+ b_{m} + \epsilon_{ij}
+$$
+
+$$
+b_{i} \sim N(0,\sigma_{i}^2) \\
+b_{m} \sim N(0,\sigma_{m}^2) \\
+\epsilon_{ij} \sim N(0,\sigma^2)
+$$
+
+Note: $b_{i}$ is the random intercept introduced by `subjects`, $b_{m}$ is the random intercept introduced by `scenarios` (m scenarios in total). $X^{T}$ is the fixed effects of `gender` and `attitude`. 
+
+```{r}
+# Build the model
+model_4 = lmer(frequency ~ gender + attitude + (1 | subject) + (1 | scenario), data = data_df)
+summary(model_4)
+```
+
+### Covariance Matrix for $Y_{i}$
+
+```{r out.width="50%"}
+# get variance of random effects
+VarCorr(model_4)
+# build the covariance matrix for Yi
+knitr::include_graphics("./data/corr matrix.png")
+```
+
+### Coefficient of attitude
+
+```{r}
+fixed.effects(model_4)
+```
+
+The coefficient of `attitude` indicates that talking in formal register is expected to have 
+a 20 Hz decrease in frequency compared to informal register while holding gender fixed. 

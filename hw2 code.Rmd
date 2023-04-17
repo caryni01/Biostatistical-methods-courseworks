@@ -1,0 +1,98 @@
+---
+title: "Hw2 Logistic regression practice"
+author: "Cary Ni"
+date: "2023-02-14"
+output: 
+  pdf_document :
+    latex_engine: xelatex
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(glmnet)
+library(boot)
+library(VGAM)
+library(ResourceSelection)
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Problem 1
+
+```{r}
+dose = c(0, 1, 2, 3, 4)
+all = c(rep(30, 5))
+dying = c(2, 8, 15, 23, 27)
+no_dying = all - dying
+new_data = data.frame(dose=0.01)
+# fit model with logit link
+model_1 = glm(cbind(dying, no_dying)~dose,family=binomial(link='logit'))
+summary(model_1)
+confint.default(model_1, parm = "dose")
+predict(model_1, newdata=new_data, type = "response")
+# fit model with probit link
+model_2 = glm(cbind(dying, no_dying)~dose,family=binomial(link='probit'))
+summary(model_2)
+confint.default(model_2, parm = "dose")
+predict(model_2, newdata=new_data, type = "response")
+# fit model with c-log-log link
+model_3 = glm(cbind(dying, no_dying)~dose,family=binomial(link='cloglog'))
+summary(model_3)
+confint.default(model_3, parm = "dose")
+predict(model_3, newdata=new_data, type = "response")
+```
+
+```{r}
+# reference for the approximation for variance
+knitr::include_graphics("approx.png")
+# create a function finding x and CI for models, mu is the expected value 
+# when p = 0.5
+get_x_ci = function(input_model, mu=0, alpha = 0.05) {
+  cof_zero = input_model$coefficients[1]
+  cof_one = input_model$coefficients[2]
+  x_hat = (-cof_zero+mu)/cof_one
+  cov_matrix = vcov(input_model)
+  x_variance = (((mu-cof_zero)/cof_one)^2)*(cov_matrix[1, 1]/((mu-cof_zero)^2)+cov_matrix[2, 2]/(cof_one^2) + 2*cov_matrix[1, 2]/((mu-cof_zero)*cof_one))
+  x_ci = c(x_hat + sqrt(x_variance)*qnorm(alpha), x_hat - sqrt(x_variance)*qnorm(alpha))
+  return(unname(x_ci))
+}
+# get 90% CI for dose in logit model
+get_x_ci(model_1)
+# reverse log transformation
+get_x_ci(model_1) %>% exp()
+# get 90% CI for probit model
+get_x_ci(model_2)
+# reverse log transformation
+get_x_ci(model_2) %>% exp()
+# get 90% CI for cloglog model
+get_x_ci(model_3, mu=clogloglink(0.5))
+# reverse log transformation
+get_x_ci(model_3, mu=clogloglink(0.5)) %>% exp()
+
+```
+
+# Problem 2
+
+```{r}
+amount = c(seq(10, 90, by=5))
+offer = c(4, 6, 10, 12, 39, 36, 22, 14, 10, 12, 8, 9, 3, 1, 5, 2, 1)
+enroll = c(0, 2, 4, 2, 12, 14, 10, 7, 5, 5, 3, 5, 2, 0, 4, 2, 1)
+model_4 = glm(cbind(enroll, offer-enroll)~amount,family=binomial(link='logit'))
+summary(model_4)
+# pearson chisq
+sum(residuals(model_4,type='pearson')^2)
+# compare with chisq(17-2)
+1-pchisq(10.613,15) # larger than 0.05, fail to reject the null that the fit is good
+# for small mi use Hosmer-Lemeshow
+hoslem.test(model_4$y, fitted(model_4), g=10)
+
+confint.default(model_4, parm = "amount")
+exp(confint.default(model_4, parm = "amount"))
+
+# get x to have of 40% enrollment rate
+cof_zero_2 = model_4$coefficients[1]
+cof_one_2 = model_4$coefficients[2]
+unname((log(2/3)-cof_zero_2)/cof_one_2)
+# use the function in problem 1 to get 95% CI 
+get_x_ci(model_4, mu =log(2/3), alpha = 0.025 )
+```
+

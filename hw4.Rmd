@@ -1,0 +1,170 @@
+---
+title: "hw4-Multinomial/Ordinal data case study"
+author: "Cary Ni"
+date: "2023-03-02"
+output: 
+  pdf_document :
+    latex_engine: xelatex
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE)
+library(tidyverse)
+library(nnet)
+library(lmtest)
+library(aod)
+library(EMT)
+library(MASS)
+```
+
+
+```{r}
+# build three-dimension array to store the data
+raw_data = c(65, 130, 67, 
+             34, 141, 130, 
+             54, 76, 48,
+             47, 116, 105, 
+             100, 111, 62, 
+             100, 191, 104)
+row_name = c("tower", "apart", "house")
+column_name = c("con.low", "con.high")
+matrix_name = c("sat.low", "sat.med", "sat.high")
+data_array = array(raw_data, dim = c(3, 2, 3), 
+                   dimnames = list(row_name,  column_name,matrix_name))
+# check the structure of data
+data_array
+# create frequency table for con vs sat
+table_1 = margin.table(data_array, margin = c(2, 3))
+# turn it into proportion table for comparison
+table_con = prop.table(table_1, margin = 1)
+# examine the independence based on chisquared test
+chisq.test(table_1)
+
+```
+
+1.1 The results from chi-square test shows that the level of satisfaction is not associated with the levels of contact with other residents as the test statistic is 5.14 with p value of 0.077, which fails to reject the null hypothesis of independence between the two variables. 
+
+```{r}
+# create frequency table for house type vs sat
+table_2 = margin.table(data_array, margin = c(1, 3))
+# turn it into proportion table for comparison
+table_type = prop.table(table_2, margin = 1)
+# examine the independence based on chi-squared test
+chisq.test(table_2)
+```
+
+1.2 The results from chi-square test shows that the level of satisfaction is  associated with the different housing type as the test statistic is 34.02 with p value 7.4e-7 , which rejects the null hypothesis of independence between the two variables. It can be seen from the proportion table that tower block has significantly higher satisfaction rate (high) and lower dissatisfaction rate (low) compared to the other housing types. 
+
+## Fit multinomial logistic model
+
+```{r}
+# turn the variables into vectors
+low_sat = as.vector(data_array[,,1])
+med_sat = as.vector(data_array[,,2])
+high_sat = as.vector(data_array[,,3])
+con_level = c(rep("Low", 3), rep("High", 3)) %>% as.factor()
+type_level = rep(c("tower", "apart", "house"), 2) %>% as.factor()
+mult_model = multinom(cbind(low_sat, med_sat, high_sat)~con_level+type_level)
+summary(mult_model)
+# use likelihood ratio test for goodness of fit for two terms
+lrtest(mult_model, "con_level")
+lrtest(mult_model, "type_level")
+# CI for log odds for each of the terms
+exp(confint(mult_model))
+mult_model_10 = multinom(cbind(low_sat, med_sat, high_sat)~con_level)
+deviance(mult_model_10) - deviance(mult_model)
+```
+
+2. It can be seen from the results of likelihood ratio test which tests the $\beta$ of `con_level` and `type_level` that the null hypothesis that these two coefficients are zero are rejected, suggesting that both contact level and housing types are related to satisfaction level. Based on the CI of each coefficients, lower contact level decreases the odds of medium satisfaction to low satisfaction by factor of 0.74 with 95% CI (0.576, 0.960) and the odds of high to low satisfaction by factor of 0.72 with 95% CI (0.571, 0.908) for each fixed housing types. Compared to apartment, living in house increases the odds of medium satisfaction to low satisfaction by factor of 1.07 with 95% CI (0.809, 1.421) and the decrease the odds of high to low satisfaction by factor of 0.738 with 95% CI (0.566, 0.961) holding contact level fixed. Compared to apartment, living in tower increases the odds of medium satisfaction to low satisfaction by factor of 1.50 with 95% CI (1.074, 2.101) and the odds of high to low satisfaction by factor of 1.90 with 95% CI (1.415, 2.549) holding contact level fixed.
+
+
+```{r}
+# find deviance for goodness of fit
+pihat = predict(mult_model, type = "probs")
+data_df = data_frame(
+  low = low_sat,
+  med = med_sat,
+  high = high_sat
+)
+m = rowSums(data_df)
+# get d_stat to test goodness of fit
+d_stat = sum(2*data_df*log(data_df/(pihat*m)))
+1 - pchisq(d_stat, (6-4)*(3-1))
+# G_stat
+res_pearson = (data_df-pihat*m)/sqrt(pihat*m)
+g_stat = sum(res_pearson^2)
+d_stat
+```
+
+The Deviance statistic is 6.89 with p value of 0.142, which suggests the good fit of this multinomial model.
+
+```{r}
+# fit the model with interaction
+mult_model_2 = multinom(cbind(low_sat, med_sat, high_sat)~con_level*type_level)
+summary(mult_model_2)
+# compare the two models with lrt
+lrtest(mult_model, mult_model_2)
+# use wald test to measure each term in the multinomial model
+# wald.test(Sigma = vcov(mult_model), b = coef(mult_model), Terms = 1:2)
+# z = summary(mult_model)$coefficients/summary(mult_model)$standard.errors 
+# (1 - pnorm(abs(z), 0, 1)) * 2
+# anova(mult_model, update(mult_model, ~ 1), test = "Chisq")
+```
+
+The result of likelihood ratio test gives test statistic of 6.9 and p value of 0.1417 when comparing the two models differentiated by interaction term. The null hypothesis that there is no interaction between `con_level` and `type_level` is not rejected, thus we could say the odds of medium and high satisfaction to low satisfaction level is not associated with the interaction between contact level and  housing types.
+
+## Fit proportional odds model
+
+```{r}
+# complile into a dataframe
+por_data = tibble(
+  res = factor(c(rep(c("sat.low", "sat.med","sat.high"), c(6, 6, 6))),
+               levels = c("sat.low", "sat.med","sat.high"),
+               ordered = TRUE),
+  house_type = rep(c("tower", "apart", "house"), 6),
+  cont_level = rep(rep(c("con.low", "con.high"), c(3, 3)), 3),
+  freq = c(low_sat, med_sat, high_sat)
+)
+ord_model = polr(res ~ factor(house_type) + factor(cont_level), data = por_data, weights = freq)
+summary(ord_model)
+exp(coef(ord_model))
+exp(confint(ord_model))
+```
+
+3. The coefficients indicates that lower level of contact decrease the cumulative odds for higher satisfaction level by 0.78 with 95% CI (0.647, 0.932) holding housing type fixed. Compared to apartment, living in house increases the cumulative odds for higher satisfaction level by factor of 1.65 with 95% CI (1.314, 2.076) and living in tower decrease cumulative odds for higher satisfaction level to factor of 0.79 with 95% CI (0.643, 0.971) holding contact level fixed. 
+
+```{r}
+# make sure the prediction is for six groups
+data_df_2 = por_data[-c(1, 4)] %>% unique()
+pihat_2 = predict(ord_model,data_df_2, type = "probs")
+# get d_stat to test goodness of fit for model
+d_stat_2 = sum(2*data_df*log(data_df/(pihat_2*m)))
+1 - pchisq(d_stat_2, (12-5))
+# G_stat for gof
+res_pearson_2 = (data_df-pihat_2*m)/sqrt(pihat_2*m)
+g_stat_2 = sum(res_pearson_2^2)
+g_stat_2
+# lrt to test for coefficient
+lrtest(ord_model, update(ord_model, ~ factor(house_type)))
+lrtest(ord_model, update(ord_model, ~ factor(cont_level)))
+```
+
+The assumption of this proportional odds model is met and the deviance statistic is 11.7 with p value of 0.11 which suggests good fit. The likelihood ratio tests of the predictor `house_type` and `cont_level` generates p value lower than 0.05, which suggests the response variable is indeed associated with the two predictors above. 
+
+## Calculate Pearson residuals from proportional odds model
+
+```{r}
+obs_df = data_df %>% as.matrix()
+what = paste(data_df_2$house_type, data_df_2$cont_level, sep = "&")
+rownames(obs_df) = what
+expc_df = m*pihat_2
+rownames(expc_df) = what
+obs_df 
+expc_df 
+# show the pearson residual for each of the groups
+(obs_df - expc_df)/sqrt(expc_df)
+# show sd for residual
+sqrt(g_stat_2/(12-5))
+```
+
+4. It can be seen from the summary table that the largest differences between observed and expected frequencies are seen in house living type for both low and high contact level, especially for the high satisfaction level. The largest residual is -1.48 with house, high contact level, and high satisfaction, which is not over 2 standard deviation which is 2.58. 

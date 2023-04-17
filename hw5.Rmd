@@ -1,0 +1,121 @@
+---
+title: "hw5- Possion regression case study"
+author: "Cary Ni"
+date: "2023-03-26"
+output: 
+  pdf_document :
+    latex_engine: xelatex
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(pscl)
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Problem 1
+
+```{r}
+crab_df = read.table("./data/hw5_crab.txt", header = TRUE) %>% 
+  janitor::clean_names() %>% 
+  mutate(
+    c = as.factor(c),
+    s = as.factor(s)
+  ) %>% 
+  select(-number)
+```
+
+```{r}
+# fit model 1 with log link
+model_1 = glm(sa ~ w, family = "poisson", data = crab_df)
+summary(model_1)
+# get pearson G stat
+res_1 = residuals(model_1, type = "pearson")
+G_1 = sum(res_1^2)
+pval_1 = 1 - pchisq(G_1, df = 171)
+pval_1
+```
+
+(a) The high pearson G statistic with a p-value close to 0 indicates that the model is lack of fit. The summary tells that for every one unit increase in carapace width, the log of expected number of satellites will increase by 0.164 (or to a factor of `r round(exp(0.164), 3)` in a standard scale number after exp transformation).
+
+```{r}
+# fit model 2 with log link
+model_2 = glm(sa ~ w + wt, family = "poisson", data = crab_df)
+summary(model_2)
+# deviance analysis (without disperson)
+test_stat = model_1$deviance - model_2$deviance
+pval_2 = 1-pchisq(test_stat, df = 1)
+pval_2
+```
+
+(b) The deviance analysis shows that the model 2 has better fit to the data compared to model 1 with a p-value of 0.0047, suggesting that adding the predictor of weight accounts for more variation in number of satellites. 
+
+```{r}
+# get dispersion factor from pearson
+res_2 = residuals(model_2, type = "pearson")
+G_2 = sum(res_2^2)
+phi = G_2/170
+phi
+# get dispersion factor from deviance
+model_2$deviance/model_2$df.residual
+# model 2 with dispersion factor
+summary(model_2, dispersion = phi)
+# gof after adding dispersion factor
+1 - pchisq(G_2/phi, df = 170)
+```
+
+(c) The dispersion factor calculated from pearson residual is around 3.16 and from deviance it is 3.29. The pearson statistic gives a p value of 0.49, which suggests the model 2 fit is good after considering the dispersion factor. The modified model 2 has larger standard error for the coefficient of carapace width and weight. Holding other variables fixed, for every one unit increase in carapace width, the log of expected number of satellites will increase by 0.046 (or to a factor of `r round(exp(0.046), 3)` in a standard scale number after exp transformation). Holding other variables fixed, for every one unit increase in weight, the log of expected number of satellites will increase by 0.447 (or to a factor of `r round(exp(0.447), 3)` in a standard scale number after exp transformation). 
+
+## Problem 2
+
+```{r}
+para_df = read.table("./data/hw5_parasite.txt", header = TRUE) %>% 
+  janitor::clean_names() %>% 
+  mutate(
+    area = as.factor(area),
+    year = as.factor(year)
+  ) %>% 
+  select(-sample) %>% 
+  na.omit()
+```
+
+```{r}
+# fit model 3 with log link
+model_3 = glm(intensity ~ area + year + length, family = "poisson", data = para_df)
+summary(model_3)
+```
+
+(a) Holding year and fish length fixed, compared to fish in area 1, fish lives in area 2 has a lower expected number of parasites to a factor of `r round(exp(-0.212), 3)`, fish lives in area 3 has a lower expected number of parasites to a factor of `r round(exp(-0.212), 3)`, fish lives in area 4 has a higher expected number of parasites to a factor of `r round(exp(1.405), 3)`. Holding area and fish length fixed, compared to year 1999, fish in year 2000 has a higher expected number of parasites to a factor of `r round(exp(0.67), 3)` while fish in year 2001 a lower expected number of parasites to a factor of `r round(exp(-0.218), 3)`. Holding year and area fixed, for every one unit increase in length, the log of expected number of satellites will decrease by 0.028 (or to a factor of `r round(exp(-0.0284), 3)` in a standard scale number after exp transformation). 
+
+```{r}
+# get pearson G stat
+res_3 = residuals(model_3, type = "pearson")
+G_3 = sum(res_3^2)
+pval_3 = 1 - pchisq(G_3, df = 1184)
+pval_3
+# use deviance
+1 - pchisq(model_3$deviance, df = 1184)
+# try with constant dispersion factor
+phi_3 = G_3/1184
+phi_3
+pval_4 = 1 - pchisq(G_3/phi_3, df = 1184)
+pval_4
+# The model will be a good fit when a constant dispersion factor is introduced indicated by a p value of 0.49. 
+```
+
+(b) The test for goodness of fit gives a p value close to 0 for both G stat and D stat, which means the model is lack of fit (without dispersion factor). Thus, it could be say that the variable intensity (number of parasites) does not follow the poisson distribution (without dispersion factor). 
+
+```{r}
+# fit zero-inflated poisson model
+model_z = zeroinfl(intensity ~ area + year + length | area + year + length, 
+                   data = para_df)
+summary(model_z)
+```
+
+(c) __For logistic model__ : Holding year and fish length fixed, compared to fish in area 1, fishes lived in area 2 and area 3 have higher chance in belonging to the group without parasites (insusceptible) while fisher lived in area 4 have a higher chance in belonging to the group with parasites (susceptible).(change the odds of being insusceptible group by 
+`r round(exp(0.72), 3)`, `r round(exp(0.658), 3)`, and `r round(exp(-1.023), 3)` respectively)
+Holding area and fish length fixed, compared to fish in year 1999, fish in year 2000 has a higher chance in belonging to the group with parasites (susceptible) while fisher in 2001 have a higher chance in belonging to the group without parasites (insusceptible). (change the odds of being insusceptible group by factors of `r round(exp(-0.75), 3)`, `r round(exp(0.456), 3)` respectively)
+Holding year and area fixed, every unit increase in fish length leads to lower odds of being fish group without parasite (insusceptible). (change the odds of being insusceptible group by a factor of `r round(exp(-0.0099), 3)`)
+
+(c) __For poisson model__ : Within the group of fish with parasites (susceptible), holding year and fish length fixed, compared to fish in area 1, fishes in area 2, 3, and 4 have higher number of parasites (to factors of `r round(exp(0.269), 3)` ,`r round(exp(0.146), 3)`, and `r round(exp(0.945), 3)` respectively.)
+Holding area and fish length fixed, compared to year 1999, fish in 2000 has more parasites (to a factor of `r round(exp(0.392), 3)`) while fish in 2001 has less parasites (to a factor of `r round(exp(-0.045), 3)`). Holding area and year fixed, every unit increase in fish length leads to less number of parasites (to a factor of `r round(exp(-0.0368), 3)`). 

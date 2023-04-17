@@ -1,0 +1,85 @@
+---
+title: "hw3 Logistic regression case study"
+author: "Cary Ni"
+date: "2023-02-24"
+output: 
+  pdf_document :
+    latex_engine: xelatex
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE)
+library(fastDummies)
+```
+
+# Problem 1
+
+```{r}
+# input observations
+case = c(1, 4, 25, 42, 19, 5, 0, 5, 21, 34, 36, 8)
+control = c(9, 26, 29, 27, 18, 0, 106, 164, 138, 139, 88, 31)
+age = rep(c(25, 35, 45, 55, 65, 75), 2)
+exposure = c(rep(1, 6), rep(0, 6))
+pros_model = glm(cbind(case, control)~exposure + age, family = binomial(link = "logit"))
+summary(pros_model)
+
+```
+
+(a) Interpretation: The group with exposure (daily alcohol consumption over 80g) has `r exp(0.1871)` times odds of developing esophageal cancer compared to the group without exposure (daily alcohol consumption below 80g) holding age group fixed. Every one year increase in age will lead to `r exp(0.06158)` times the odds of developing esophageal cancer holding exposure presence fixed.
+
+```{r}
+# turn the age into dummy variables 
+dummy_age = dummy_cols(age)[-1]
+colnames(dummy_age) = LETTERS[1:6]
+# fit the model with only age
+model_1 = glm(cbind(case, control)~data.matrix(dummy_age), family = binomial(link = "logit"))
+summary(model_1)
+# fit the model with exposure added
+model_2 = glm(cbind(case, control)~data.matrix(dummy_age) + exposure, family = binomial(link = "logit"))
+summary(model_2)
+sum(residuals(model_2, type = "pearson")^2)
+anova(model_1, model_2)
+# get the p value
+1-pchisq(79.522, 1)
+```
+
+(b) It can be seen that the smaller model use age group as the only predictor which is nested by the larger model which use both age group and exposure status as covariates. The nested models are compared based on deviance, which follows chi-squared distribution with df = 1 and statistic = 79.522 with p value close to 0 (< 0.000001). Therefore, the model coefficient $\beta$ for exposure status is not 0 while the null hypothesis is rejected, which provides the evidence for the association between alchol consumption and esophageal cancer. 
+
+# Problem 2
+
+```{r}
+# number of seed that germinates
+y = c(10, 23, 23, 26, 17, 5, 53, 55, 32, 46, 10, 8, 10, 8, 23, 0, 3, 22, 15, 32, 3)
+# total number of seed
+m = c(39, 62, 81, 51, 39, 6, 74, 72, 51, 79, 13, 16, 30, 28, 45, 4, 12, 41, 30, 51, 7)
+# set O.a75 as 1
+seed = c(rep(1, 11), rep(0, 10))
+# set bean as 1
+root = c(rep(1, 5), rep(0, 6), rep(1, 5), rep(0, 5))
+
+# fit model without dispersion
+model_3 = glm(cbind(y, m-y)~seed + root, family = binomial(link = "logit"))
+summary(model_3)
+# check model fit with chisq
+1-pchisq(39.686, 18)
+# get person statistic G
+sum(residuals(model_3, type = "pearson")^2)
+# get dispersion factor from pearson G
+sum(residuals(model_3, type = "pearson")^2)/18
+# get dispersion factor from residual deviance 
+39.686/18
+# half normal plot to check over-dispersion
+res = residuals(model_3, type = "pearson")
+plot(qnorm((21 + 1:21 + 0.5)/(2*21 + 1.125)), sort(abs(res)))
+# fit model with constant dispersion factor
+summary(model_3, dispersion = 2.128)
+# check model fit with chisq
+1-pchisq(39.686/2.128, 18)
+```
+
+(a) The odds of germination for O.aegyptiaca 73 seed in cucumber extract is `r exp(0.36)`. The odds of germination for O.aegyptiaca 75 seed is `r exp(0.27)` times the odds for O.aegyptiaca 75 seed holding root extract fixed. The odds of germination in bean extract is `r exp(-1.06)` times the odds in cucumber extract holding seeds type fixed. 
+
+(b) Residual deviance and pearson statistics show that the logistic regression model is poorly fixed with a p value smaller than 0.05, which suggests the potential issue of over dispersion. The half normal plot also generates a linear line deviated from the reference line. Estimated dispersion factor is 2.13 or 2.20 based on pearson residual or residual deviance. The updated model with constant dispersion factor gives a better fit of logistic model with p value larger than 0.05. 
+
+(c) Hierarchical sampling (clusters in the group has its own germination rate from the same distribution) might be the source of over dispersion as $\pi$ becomes a random variable in this case. 
+
